@@ -41,9 +41,6 @@ spec:
           blockPublicPolicy: true
           ignorePublicACLs: true
           restrictPublicBuckets: true
-        # Platform standard — versioning always enabled
-        versioningConfiguration:
-          status: Enabled
         tagging:
           tagSet:
           - key: managed-by

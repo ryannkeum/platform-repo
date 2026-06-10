@@ -1,0 +1,111 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: webapplication
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: WebApplication
+
+    # ── Input parameters exposed to developers ─────────────────
+    spec:
+      appName: string                        # App name (used as resource name prefix)
+      image: string                          # Container image (e.g. my-ecr/my-app:v1)
+      replicas: integer | default=2
+      bucketName: string                     # S3 bucket name to create
+      region: string | default="ap-northeast-2"
+
+    # ── Output values returned to developers ───────────────────
+    status:
+      bucketArn: ${bucket.status.ackResourceMetadata.arn}       # Populated by ACK once the S3 Bucket is created
+      ready: ${deployment.status.?readyReplicas.orValue(0) > 0} # Becomes true when at least one replica is running and ready
+
+  resources:
+
+  # ① S3 Bucket — ACK creates the actual bucket in AWS
+  - id: bucket
+    template:
+      apiVersion: s3.services.k8s.aws/v1alpha1
+      kind: Bucket
+      metadata:
+        name: ${schema.spec.bucketName}
+        namespace: ${schema.metadata.namespace}
+        annotations:
+          services.k8s.aws/region: ${schema.spec.region}
+          services.k8s.aws/deletion-policy: retain  # Preserve the bucket when the Instance is deleted — prevents data loss
+      spec:
+        name: ${schema.spec.bucketName}
+        # Platform standard — block all public access
+        publicAccessBlock:
+          blockPublicACLs: true
+          blockPublicPolicy: true
+          ignorePublicACLs: true
+          restrictPublicBuckets: true
+        # Platform standard — versioning always enabled
+        versioningConfiguration:
+          status: Enabled
+        tagging:
+          tagSet:
+          - key: managed-by
+            value: platform-team
+          - key: app
+            value: ${schema.spec.appName}
+
+  # ② ConfigMap — passes bucket info to the application
+  #    kro automatically creates this AFTER bucket is ready (references bucket.status)
+  - id: configmap
+    template:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ${schema.spec.appName}-config
+        namespace: ${schema.metadata.namespace}
+      data:
+        APP_NAME:  ${schema.spec.name}
+        AWS_REGION: ${schema.spec.region}
+        BUCKET_NAME: ${bucket.status.name}
+        BUCKET_ARN: ${bucket.status.ackResourceMetadata.arn}
+
+  # ③ Deployment — app container, injects ConfigMap as env vars
+  - id: deployment
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${schema.spec.appName}
+        namespace: ${schema.metadata.namespace}
+        labels:
+          app: ${schema.spec.appName}
+      spec:
+        replicas: ${schema.spec.replicas}
+        selector:
+          matchLabels:
+            app: ${schema.spec.appName}
+        template:
+          metadata:
+            labels:
+              app: ${schema.spec.appName}
+          spec:
+            containers:
+            - name: app
+              image: ${schema.spec.image}
+              ports:
+              - containerPort: 8080
+              envFrom:
+              - configMapRef:
+                  name: ${configmap.metadata.name}  # kro infers a dependency on the configmap resource from this reference
+
+  # ④ Service — exposes the app
+  - id: service
+    template:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: ${schema.spec.appName}-svc
+        namespace: ${schema.metadata.namespace}
+      spec:
+        selector: ${deployment.spec.selector.matchLabels}
+        ports:
+        - port: 80
+          targetPort: 8080
+          protocol: TCP

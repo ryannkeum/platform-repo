@@ -58,7 +58,7 @@ spec:
         name: ${schema.spec.appName}-config
         namespace: ${schema.metadata.namespace}
       data:
-        APP_NAME:  ${schema.spec.name}
+        APP_NAME:  ${schema.spec.appName}
         AWS_REGION: ${schema.spec.region}
         BUCKET_NAME: ${bucket.spec.name}
         BUCKET_ARN: ${bucket.status.ackResourceMetadata.arn}

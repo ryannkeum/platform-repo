@@ -60,7 +60,7 @@ spec:
       data:
         APP_NAME:  ${schema.spec.name}
         AWS_REGION: ${schema.spec.region}
-        BUCKET_NAME: ${bucket.status.name}
+        BUCKET_NAME: ${bucket.spec.name}
         BUCKET_ARN: ${bucket.status.ackResourceMetadata.arn}
 
   # ③ Deployment — app container, injects ConfigMap as env vars
